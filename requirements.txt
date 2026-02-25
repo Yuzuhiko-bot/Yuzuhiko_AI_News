@@ -1,0 +1,5 @@
+feedparser
+google-generativeai
+requests
+python-dotenv
+line-bot-sdk
