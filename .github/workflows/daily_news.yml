@@ -2,7 +2,7 @@ name: Daily AI News Notification (Messaging API)
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Every day at 00:00 UTC (09:00 JST)
+    - cron: '0 23 * * *' # Every day at 00:00 UTC (09:00 JST)
   workflow_dispatch: # Allows manual trigger
 
 jobs:
