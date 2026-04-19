@@ -134,14 +134,29 @@ def summarize_news(news_list):
         return "エラー: GEMINI_API_KEYが設定されていません。"
 
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemma-4-31b-it")
+    
+    # システム指示を追加して、日本語出力を絶対徹底させる
+    system_instr = (
+        "あなたは日本のAI技術専門のジャーナリストです。ニュースの内容を分析し、"
+        "日本の読者が手短に理解しやすいよう、専門用語を適切に解説しながら【必ず日本語で】要約・出力してください。"
+        "記事のURL以外の部分に英語が混ざることを厳禁します。簡潔かつ明快な文体で出力してください。"
+    )
+    
+    model = genai.GenerativeModel(
+        model_name="gemma-4-31b-it",
+        system_instruction=system_instr
+    )
 
     content = "\n".join([f"- {n['title']} ({n['source']}): {n['link']}" for n in news_list])
-    prompt = f"""以下のAI関連のニュース記事リストを、日本語で要約してください。
-読者が手短に内容を把握できるように、重要なニュースを3〜5個に絞って簡潔に記述してください。
-各要約の後に、該当記事のURLを記載してください。
+    prompt = f"""以下のニュースリストから、重要なAI関連ニュースを3〜5個ピックアップし、日本語で要約してください。
 
-ニュースリスト:
+【出力ルール】
+1. 必ず日本語で記述してください。
+2. 読者が手短に内容を把握できるよう、ポイントを箇条書きで示してください。
+3. 各項目の後に、該当記事のURLを記載してください。
+4. ジャンル名（例：[モデル公開]、[研究]など）を適宜付与してください。
+
+【ソースデータ】
 {content}
 """
 
