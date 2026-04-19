@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import feedparser
 import google.generativeai as genai
@@ -136,27 +135,21 @@ def summarize_news(news_list):
 
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # 物理的なタグ抽出方式を採用
-    # Gemma 4がどれだけお喋りをしても、[[SUMMARY_START]] と [[SUMMARY_END]] の間だけを抜き出す
+    # Gemini 3.1 Flash Lite は指示に従いやすいため、シンプルなシステム指示に戻します
     system_instr = (
         "あなたは日本のAI技術専門のジャーナリストです。ニュースの内容を分析し、"
-        "日本の読者が分かりやすいよう、簡潔な日本語で要約してください。\n\n"
-        "【重要ルール】\n"
-        "1. 要約の「前後に」必ず以下のタグを単独行で挿入してください。\n"
-        "   - 要約の開始：[[SUMMARY_START]]\n"
-        "   - 要約の終了：[[SUMMARY_END]]\n"
-        "2. タグの外側でどれだけ思考プロセス（Role, Task, Wait...等）を英語や日本語で出力しても構いませんが、"
-        "要約の本文そのものは必ず日本語で、指定した開始・終了タグの内側に出力してください。"
+        "日本の読者が分かりやすいよう、簡潔な日本語で要約してください。"
+        "要約以外の挨拶や解説、思考プロセスなどは一切出力しないでください。"
     )
     
     model = genai.GenerativeModel(
-        model_name="gemma-4-31b-it",
+        model_name="gemini-3.1-flash-lite-preview",
         system_instruction=system_instr
     )
 
     content = "\n".join([f"- {n['title']} ({n['source']}): {n['link']}" for n in news_list])
     prompt = f"""以下のニュースリストから、重要なAI関連ニュースを3〜5個抽出し、日本語で要約してください。
-要約の開始には [[SUMMARY_START]]、終了には [[SUMMARY_END]] を必ず付けてください。
+箇条書きを用いて、各項目の後にURLを記載してください。
 
 [ニュースリスト]
 {content}
@@ -164,20 +157,7 @@ def summarize_news(news_list):
 
     try:
         response = model.generate_content(prompt)
-        full_text = response.text
-        
-        # 正規表現で [[SUMMARY_START]] と [[SUMMARY_END]] の間を抽出
-        pattern = r"\[\[SUMMARY_START\]\](.*?)\[\[SUMMARY_END\]\]"
-        match = re.search(pattern, full_text, re.DOTALL)
-        
-        if match:
-            summary_part = match.group(1).strip()
-            # 万が一英語が残っていないか、最終的なクリーンアップ
-            return summary_part
-        else:
-            # タグが見当たらない場合のフォールバック（従来通りテキスト全部を返すが、念のため警告）
-            print("Warning: Tags not found in LLM response. Returning full text.")
-            return full_text
+        return response.text.strip()
     except Exception as e:
         return f"エラー: 要約の生成に失敗しました ({str(e)})"
 
