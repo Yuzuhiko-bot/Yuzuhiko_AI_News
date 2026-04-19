@@ -20,7 +20,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
 GCP_SERVICE_ACCOUNT_JSON = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
-GOOGLE_DOC_ID = os.getenv("GOOGLE_DOC_ID")
+GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
 
 # RSS Feeds (AI related Japanese sources)
 RSS_FEEDS = [
@@ -134,7 +134,7 @@ def summarize_news(news_list):
         return "エラー: GEMINI_API_KEYが設定されていません。"
 
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    model = genai.GenerativeModel("gemma-4-31b-it")
 
     content = "\n".join([f"- {n['title']} ({n['source']}): {n['link']}" for n in news_list])
     prompt = f"""以下のAI関連のニュース記事リストを、日本語で要約してください。
@@ -165,19 +165,66 @@ def send_line_message(message):
         print(f"Failed to send notification: {e.status_code}")
         print(e.message)
 
+def get_weekly_doc_title():
+    """Get the document title for the current week (Sunday-Saturday, wk = %U + 1)."""
+    now = datetime.now(JST)
+    week_number = int(now.strftime("%U")) + 1
+    return f"Yuzuhiko AI News_wk{week_number}"
+
+def get_google_credentials():
+    """Get Google API credentials with Drive and Docs scopes."""
+    creds_info = json.loads(GCP_SERVICE_ACCOUNT_JSON)
+    return service_account.Credentials.from_service_account_info(
+        creds_info,
+        scopes=[
+            "https://www.googleapis.com/auth/documents",
+            "https://www.googleapis.com/auth/drive.file",
+        ]
+    )
+
+def get_or_create_weekly_doc(creds):
+    """Find or create this week's Google Doc in the specified folder."""
+    drive_service = build("drive", "v3", credentials=creds)
+    doc_title = get_weekly_doc_title()
+
+    # Search for existing doc with this week's title in the target folder
+    query = (
+        f"name = '{doc_title}' "
+        f"and '{GOOGLE_DRIVE_FOLDER_ID}' in parents "
+        f"and mimeType = 'application/vnd.google-apps.document' "
+        f"and trashed = false"
+    )
+    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+    files = results.get("files", [])
+
+    if files:
+        doc_id = files[0]["id"]
+        print(f"Found existing weekly doc: {doc_title} (ID: {doc_id})")
+        return doc_id
+
+    # Create a new doc in the folder
+    file_metadata = {
+        "name": doc_title,
+        "mimeType": "application/vnd.google-apps.document",
+        "parents": [GOOGLE_DRIVE_FOLDER_ID],
+    }
+    created_file = drive_service.files().create(
+        body=file_metadata, fields="id"
+    ).execute()
+    doc_id = created_file["id"]
+    print(f"Created new weekly doc: {doc_title} (ID: {doc_id})")
+    return doc_id
+
 def append_to_google_doc(news_list, summary):
-    """Append today's news summary and article bodies to a Google Document."""
-    if not GCP_SERVICE_ACCOUNT_JSON or not GOOGLE_DOC_ID:
-        print("Google Docs credentials or Doc ID not set. Skipping Google Docs append.")
+    """Append today's news summary and article bodies to this week's Google Document."""
+    if not GCP_SERVICE_ACCOUNT_JSON or not GOOGLE_DRIVE_FOLDER_ID:
+        print("Google Docs credentials or Folder ID not set. Skipping Google Docs append.")
         return
 
     try:
-        creds_info = json.loads(GCP_SERVICE_ACCOUNT_JSON)
-        creds = service_account.Credentials.from_service_account_info(
-            creds_info,
-            scopes=["https://www.googleapis.com/auth/documents"]
-        )
-        service = build("docs", "v1", credentials=creds)
+        creds = get_google_credentials()
+        doc_id = get_or_create_weekly_doc(creds)
+        docs_service = build("docs", "v1", credentials=creds)
 
         # Build the text to append
         today = datetime.now(JST).strftime("%Y年%m月%d日")
@@ -202,7 +249,7 @@ def append_to_google_doc(news_list, summary):
             text_to_append += f"{'- ' * 25}\n\n"
 
         # Get the current document length to append at the end
-        doc = service.documents().get(documentId=GOOGLE_DOC_ID).execute()
+        doc = docs_service.documents().get(documentId=doc_id).execute()
         end_index = doc["body"]["content"][-1]["endIndex"] - 1
 
         requests_body = [
@@ -214,12 +261,12 @@ def append_to_google_doc(news_list, summary):
             }
         ]
 
-        service.documents().batchUpdate(
-            documentId=GOOGLE_DOC_ID,
+        docs_service.documents().batchUpdate(
+            documentId=doc_id,
             body={"requests": requests_body}
         ).execute()
 
-        print(f"Successfully appended news with article bodies to Google Doc: {GOOGLE_DOC_ID}")
+        print(f"Successfully appended news to weekly doc: {get_weekly_doc_title()} (ID: {doc_id})")
 
     except Exception as e:
         print(f"Failed to append to Google Doc: {str(e)}")
