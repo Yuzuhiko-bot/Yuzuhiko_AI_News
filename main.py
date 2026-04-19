@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import feedparser
 import google.generativeai as genai
@@ -135,18 +136,17 @@ def summarize_news(news_list):
 
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # 徹底したFew-shot (正解例) 指定：思考プロセスを一切出さないように強制する
+    # 物理的なタグ抽出方式を採用
+    # Gemma 4がどれだけお喋りをしても、[[SUMMARY_START]] と [[SUMMARY_END]] の間だけを抜き出す
     system_instr = (
         "あなたは日本のAI技術専門のジャーナリストです。ニュースの内容を分析し、"
-        "日本の読者が手短に理解しやすいよう、簡潔な日本語で要約・出力してください。\n\n"
-        "【厳守事項】出力は「要約本文のみ」としてください。「思考プロセス」「分析」「自己評価」「英語の解説」などは1文字も出力しないでください。\n"
-        "回答の開始は、必ず [ジャンル名] から始めてください。\n\n"
-        "【出力例】\n"
-        "[モデル公開]\n"
-        "OpenAIが新型GPT-5のプレビューを公開\n"
-        "・推論能力が従来の10倍に向上\n"
-        "・画像と音声のリアルタイム同時処理が可能に\n"
-        "URL: https://example.com/news1"
+        "日本の読者が分かりやすいよう、簡潔な日本語で要約してください。\n\n"
+        "【重要ルール】\n"
+        "1. 要約の「前後に」必ず以下のタグを単独行で挿入してください。\n"
+        "   - 要約の開始：[[SUMMARY_START]]\n"
+        "   - 要約の終了：[[SUMMARY_END]]\n"
+        "2. タグの外側でどれだけ思考プロセス（Role, Task, Wait...等）を英語や日本語で出力しても構いませんが、"
+        "要約の本文そのものは必ず日本語で、指定した開始・終了タグの内側に出力してください。"
     )
     
     model = genai.GenerativeModel(
@@ -155,9 +155,8 @@ def summarize_news(news_list):
     )
 
     content = "\n".join([f"- {n['title']} ({n['source']}): {n['link']}" for n in news_list])
-    # プロンプト：余計な説明を一切排除し、機械的に変換するように指示
-    prompt = f"""以下のニュースリストから、重要なAI関連ニュースを3〜5個抽出し、日本語で出力例の形式通りに応えてください。
-解説や挨拶、メタ的な発言は絶対に含めないでください。
+    prompt = f"""以下のニュースリストから、重要なAI関連ニュースを3〜5個抽出し、日本語で要約してください。
+要約の開始には [[SUMMARY_START]]、終了には [[SUMMARY_END]] を必ず付けてください。
 
 [ニュースリスト]
 {content}
@@ -165,9 +164,22 @@ def summarize_news(news_list):
 
     try:
         response = model.generate_content(prompt)
-        return response.text
+        full_text = response.text
+        
+        # 正規表現で [[SUMMARY_START]] と [[SUMMARY_END]] の間を抽出
+        pattern = r"\[\[SUMMARY_START\]\](.*?)\[\[SUMMARY_END\]\]"
+        match = re.search(pattern, full_text, re.DOTALL)
+        
+        if match:
+            summary_part = match.group(1).strip()
+            # 万が一英語が残っていないか、最終的なクリーンアップ
+            return summary_part
+        else:
+            # タグが見当たらない場合のフォールバック（従来通りテキスト全部を返すが、念のため警告）
+            print("Warning: Tags not found in LLM response. Returning full text.")
+            return full_text
     except Exception as e:
-        return f"要約中にエラーが発生しました: {str(e)}"
+        return f"エラー: 要約の生成に失敗しました ({str(e)})"
 
 def send_line_message(message):
     """Send a push message via LINE Messaging API."""
