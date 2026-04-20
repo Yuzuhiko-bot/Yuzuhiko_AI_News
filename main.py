@@ -22,11 +22,15 @@ LINE_USER_ID = os.getenv("LINE_USER_ID")
 GCP_SERVICE_ACCOUNT_JSON = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
 GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
 
-# RSS Feeds (AI related Japanese sources)
+# RSS Feeds (AI related technical and global sources)
 RSS_FEEDS = [
+    "https://www.publickey1.jp/atom.xml",             # Publickey (Tech details)
     "https://rss.itmedia.co.jp/rss/2.0/aiplus.xml",  # ITmedia AI+
-    "https://ledge.ai/feed",                         # Ledge.ai
     "https://ainow.ai/feed",                         # AINOW
+    "https://deepmind.google/blog/rss.xml",          # Google DeepMind (Primary)
+    "https://openai.com/news/rss.xml",               # OpenAI (Primary)
+    "https://hnrss.org/frontpage?q=AI",              # Hacker News AI (Trends)
+    "https://www.theverge.com/ai-artificial-intelligence/rss/index.xml", # The Verge AI (Global news)
     "https://google.com/search?q=AI+%E3%83%8B%E3%83%A5%E3%83%BC%E3%82%B9&tbm=nws&output=rss", # Google News AI (JP)
 ]
 
@@ -135,11 +139,16 @@ def summarize_news(news_list):
 
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # Gemini 3.1 Flash Lite は指示に従いやすいため、シンプルなシステム指示に戻します
+    # プロフェッショナルなテックジャーナリストとしての役割を定義
     system_instr = (
-        "あなたは日本のAI技術専門のジャーナリストです。ニュースの内容を分析し、"
-        "日本の読者が分かりやすいよう、簡潔な日本語で要約してください。"
-        "要約以外の挨拶や解説、思考プロセスなどは一切出力しないでください。"
+        "あなたは世界トップクラスのAI技術ジャーナリスト兼編集長です。"
+        "提供された多数のニュース記事の中から、ビジネス実務と技術トレンドの両面で"
+        "「今日最も知っておくべき重要なニュース」を3〜5個厳選し、日本の読者向けに要約してください。\n\n"
+        "【要件】\n"
+        "1. 各ニュースを100文字程度で簡潔に要約してください。\n"
+        "2. なぜそのニュースが重要なのか（ビジネスへの影響や技術的革新性）が伝わるように記述してください。\n"
+        "3. 英語のニュースも自然でこなれた日本語に変換してください。\n"
+        "4. 余計な挨拶や解説、思考プロセスなどは一切出力しないでください。"
     )
     
     model = genai.GenerativeModel(
@@ -147,12 +156,24 @@ def summarize_news(news_list):
         system_instruction=system_instr
     )
 
-    content = "\n".join([f"- {n['title']} ({n['source']}): {n['link']}" for n in news_list])
-    prompt = f"""以下のニュースリストから、重要なAI関連ニュースを3〜5個抽出し、日本語で要約してください。
-箇条書きを用いて、各項目の後にURLを記載してください。
+    # 記事のタイトルと本文（冒頭）を結合して Gemini に渡す
+    news_data = []
+    for n in news_list:
+        body_snippet = n.get("body", "(本文なし)")[:1500] # トークン節約しつつ十分な情報を渡す
+        news_data.append(f"Source: {n['source']}\nTitle: {n['title']}\nLink: {n['link']}\nContent: {body_snippet}\n---")
+    
+    content_block = "\n".join(news_data)
+    
+    prompt = f"""以下のニュース記事リストから、特に重要なものを3〜5個厳選して要約してください。
+箇条書きを用いて、各項目の後にURLを記載してください。形式は以下を守ってください：
 
-[ニュースリスト]
-{content}
+[ジャンル名]
+ニュースのタイトル
+・要約内容（約100文字）
+URL: リンク
+
+【候補記事リスト】
+{content_block}
 """
 
     try:
