@@ -254,6 +254,11 @@ def append_to_google_doc(news_list, summary):
 
     try:
         creds = get_google_credentials()
+        # サービスアカウントのメールアドレスをログに出力（診断用）
+        creds_info = json.loads(GCP_SERVICE_ACCOUNT_JSON)
+        bot_email = creds_info.get("client_email", "不明")
+        print(f"Using Service Account: {bot_email}")
+
         doc_id = get_or_create_weekly_doc(creds)
         docs_service = build("docs", "v1", credentials=creds)
 
@@ -300,7 +305,17 @@ def append_to_google_doc(news_list, summary):
         print(f"Successfully appended news to weekly doc: {get_weekly_doc_title()} (ID: {doc_id})")
 
     except Exception as e:
-        print(f"Failed to append to Google Doc: {str(e)}")
+        error_msg = str(e)
+        print(f"Failed to append to Google Doc: {error_msg}")
+        
+        if "storageQuotaExceeded" in error_msg:
+            print("\n" + "!" * 50)
+            print("【解決策: 容量不足エラー】")
+            print(f"サービスアカウント {bot_email} のストレージ枠がいっぱいです。")
+            print("ユーザー様の5TBの枠を利用するために、以下の操作を行ってください：")
+            print(f"1. ユーザー様のアカウントで Google ドキュメントを作成し、{bot_email} を『編集者』として追加する。")
+            print("2. Google Drive フォルダの共有設定を再確認し、Botが書き込み権限を持っているか確認する。")
+            print("!" * 50 + "\n")
 
 def main():
     print("Fetching news...")
