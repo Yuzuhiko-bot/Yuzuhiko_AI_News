@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from linebot import LineBotApi
 from linebot.models import TextSendMessage
 from linebot.exceptions import LineBotApiError
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # Load environment variables
@@ -19,7 +18,7 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
-GCP_SERVICE_ACCOUNT_JSON = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
+GOOGLE_USER_CREDENTIALS = os.getenv("GOOGLE_USER_CREDENTIALS")
 GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
 
 # RSS Feeds (AI related technical and global sources)
@@ -196,22 +195,20 @@ def send_line_message(message):
         print(f"Failed to send notification: {e.status_code}")
         print(e.message)
 
+def get_google_credentials():
+    """Get Google API credentials from OAuth2 Token JSON (for User account)."""
+    if not GOOGLE_USER_CREDENTIALS:
+        raise ValueError("GOOGLE_USER_CREDENTIALS is not set.")
+    
+    from google.oauth2.credentials import Credentials
+    creds_info = json.loads(GOOGLE_USER_CREDENTIALS)
+    return Credentials.from_authorized_user_info(creds_info)
+
 def get_weekly_doc_title():
     """Get the document title for the current week (Sunday-Saturday, wk = %U + 1)."""
     now = datetime.now(JST)
     week_number = int(now.strftime("%U")) + 1
     return f"Yuzuhiko AI News_wk{week_number}"
-
-def get_google_credentials():
-    """Get Google API credentials with Drive and Docs scopes."""
-    creds_info = json.loads(GCP_SERVICE_ACCOUNT_JSON)
-    return service_account.Credentials.from_service_account_info(
-        creds_info,
-        scopes=[
-            "https://www.googleapis.com/auth/documents",
-            "https://www.googleapis.com/auth/drive.file",
-        ]
-    )
 
 def get_or_create_weekly_doc(creds):
     """Find or create this week's Google Doc in the specified folder."""
@@ -248,17 +245,12 @@ def get_or_create_weekly_doc(creds):
 
 def append_to_google_doc(news_list, summary):
     """Append today's news summary and article bodies to this week's Google Document."""
-    if not GCP_SERVICE_ACCOUNT_JSON or not GOOGLE_DRIVE_FOLDER_ID:
-        print("Google Docs credentials or Folder ID not set. Skipping Google Docs append.")
+    if not GOOGLE_USER_CREDENTIALS or not GOOGLE_DRIVE_FOLDER_ID:
+        print("Google User Credentials or Folder ID not set. Skipping Google Docs append.")
         return
 
     try:
         creds = get_google_credentials()
-        # サービスアカウントのメールアドレスをログに出力（診断用）
-        creds_info = json.loads(GCP_SERVICE_ACCOUNT_JSON)
-        bot_email = creds_info.get("client_email", "不明")
-        print(f"Using Service Account: {bot_email}")
-
         doc_id = get_or_create_weekly_doc(creds)
         docs_service = build("docs", "v1", credentials=creds)
 
@@ -305,17 +297,7 @@ def append_to_google_doc(news_list, summary):
         print(f"Successfully appended news to weekly doc: {get_weekly_doc_title()} (ID: {doc_id})")
 
     except Exception as e:
-        error_msg = str(e)
-        print(f"Failed to append to Google Doc: {error_msg}")
-        
-        if "storageQuotaExceeded" in error_msg:
-            print("\n" + "!" * 50)
-            print("【解決策: 容量不足エラー】")
-            print(f"サービスアカウント {bot_email} のストレージ枠がいっぱいです。")
-            print("ユーザー様の5TBの枠を利用するために、以下の操作を行ってください：")
-            print(f"1. ユーザー様のアカウントで Google ドキュメントを作成し、{bot_email} を『編集者』として追加する。")
-            print("2. Google Drive フォルダの共有設定を再確認し、Botが書き込み権限を持っているか確認する。")
-            print("!" * 50 + "\n")
+        print(f"Failed to append to Google Doc: {str(e)}")
 
 def main():
     print("Fetching news...")
@@ -333,10 +315,10 @@ def main():
     if len(line_summary) > 4900:
         line_summary = line_summary[:4900] + "..."
     send_line_message(line_summary)
-
+    
     print("Appending to Google Docs (with full article text)...")
     append_to_google_doc(news, summary)
-
+    
     print("Done!")
 
 if __name__ == "__main__":
