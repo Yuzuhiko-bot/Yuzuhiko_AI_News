@@ -151,7 +151,7 @@ def summarize_news(news_list):
     )
     
     model = genai.GenerativeModel(
-        model_name="gemini-3.1-flash-lite-preview",
+        model_name="gemini-3.1-flash-lite",
         system_instruction=system_instr
     )
 
