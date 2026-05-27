@@ -1,8 +1,10 @@
 import os
 import json
 import feedparser
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import requests
+import sys
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
@@ -136,7 +138,7 @@ def summarize_news(news_list):
     if not GEMINI_API_KEY:
         return "エラー: GEMINI_API_KEYが設定されていません。"
 
-    genai.configure(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY)
     
     # プロフェッショナルなテックジャーナリストとしての役割を定義
     system_instr = (
@@ -150,11 +152,6 @@ def summarize_news(news_list):
         "4. 余計な挨拶や解説、思考プロセスなどは一切出力しないでください。"
     )
     
-    model = genai.GenerativeModel(
-        model_name="gemini-3.1-flash-lite",
-        system_instruction=system_instr
-    )
-
     # 記事のタイトルと本文（冒頭）を結合して Gemini に渡す
     news_data = []
     for n in news_list:
@@ -176,7 +173,13 @@ URL: リンク
 """
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instr
+            )
+        )
         return response.text.strip()
     except Exception as e:
         return f"エラー: 要約の生成に失敗しました ({str(e)})"
@@ -300,6 +303,7 @@ def append_to_google_doc(news_list, summary):
         print(f"Failed to append to Google Doc: {str(e)}")
 
 def main():
+    sys.stdout.reconfigure(encoding='utf-8')
     print("Fetching news...")
     news = fetch_news()
     print(f"Found {len(news)} new articles.")
